@@ -172,7 +172,7 @@ osThreadId_t TurnLedOffHandle;
 const osThreadAttr_t TurnLedOff_attributes = {
   .name = "TurnLedOff",
   .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityNormal7,
+  .priority = (osPriority_t) osPriorityBelowNormal6,
 };
 /* USER CODE BEGIN PV */
 /* USER CODE END PV */
@@ -382,6 +382,8 @@ void StartGyroSample(void *argument)
   /* init code for USB_DEVICE */
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 5 */
+  uint32_t lastTick = HAL_GetTick();
+  uint32_t currentTick;
   /* Infinite loop */
   for(;;)
   {
@@ -392,14 +394,18 @@ void StartGyroSample(void *argument)
 		gyroRawData[i] = gyroRawData[i] / 1000;
 	}
 
+	currentTick = HAL_GetTick();
+	uint32_t diffTimeMs = currentTick - lastTick;
+
 	// Riemann sum - Midpoint
-	gyroAngle.x += (gyroRawData[0] + gyroLastAngularVelocity.x) / 2.0 * SAMPLE_PERIOD_MS / 1000.0;
-	gyroAngle.y += (gyroRawData[1] + gyroLastAngularVelocity.y) / 2.0 * SAMPLE_PERIOD_MS / 1000.0;
-	gyroAngle.z += (gyroRawData[2] + gyroLastAngularVelocity.z) / 2.0 * SAMPLE_PERIOD_MS / 1000.0;
+	gyroAngle.x += (gyroRawData[0] + gyroLastAngularVelocity.x) / 2.0 * diffTimeMs / 1000.0;
+	gyroAngle.y += (gyroRawData[1] + gyroLastAngularVelocity.y) / 2.0 * diffTimeMs / 1000.0;
+	gyroAngle.z += (gyroRawData[2] + gyroLastAngularVelocity.z) / 2.0 * diffTimeMs / 1000.0;
 
 	setVector(&gyroLastAngularVelocity, gyroRawData[0], gyroRawData[1], gyroRawData[2]);
+	lastTick = currentTick;
 
-	osDelay(SAMPLE_PERIOD_MS); // tan so lay mau la 100 Hz
+	osDelay(3); // tang toi da tan so lay mau
   }
   /* USER CODE END 5 */
 }
@@ -463,12 +469,9 @@ void StartTrackBall(void *argument)
 		vector temp = vBall;
 		vector velocity = multiplyVector(angularVelocityRad, temp);
 
-		// chi xet huong danh len.
-		velocity.x = 0;
-		velocity.y = 0;
 
 		// danh nguoc huong hoac danh khong du luc
-		if(velocity.z < 3) {
+		if(velocity.z <= 0 || getVectorLength(velocity) < 5) {
 			// game over
 			gameStatus = GAME_OVER;
 			HAL_GPIO_WritePin(LED3_GPIO_PORT, LED3_PIN, GPIO_PIN_SET);
@@ -478,6 +481,10 @@ void StartTrackBall(void *argument)
 
 		score++;
 		HAL_GPIO_WritePin(LED4_GPIO_PORT, LED4_PIN, GPIO_PIN_SET);
+
+		// giam bot do nhay sang hai ben
+		velocity.x /= 10;
+		velocity.y /= 10;
 
 		ball.root = vBall;
 		ball.velocity = velocity;
