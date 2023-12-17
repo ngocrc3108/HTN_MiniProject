@@ -27,6 +27,7 @@
 #include "stm32f429i_discovery_gyroscope.h"
 #include "stdio.h"
 #include "usbd_cdc_if.h"
+#include "math.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -37,19 +38,22 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define SAMPLE_PERIOD_MS 10 // ms
-#define LCD_WIDTH 240
-#define LCD_HEIGHT 320
-#define BALL_RADIUS 25
-#define PIXEL_PER_METER 1000
-#define OFFSET 100 // do nhay
+#define PIXEL_PER_METER 1000.0
+#define LCD_HEIGHT_PX 320
+#define LCD_WIDTH_PX 240
+#define BALL_RADIUS_PX 20
+#define LCD_HEIGHT LCD_HEIGHT_PX / PIXEL_PER_METER
+#define LCD_WIDTH LCD_WIDTH_PX / PIXEL_PER_METER
+#define BALL_RADIUS BALL_RADIUS_PX / PIXEL_PER_METER
+#define OFFSET 0.5 // do nhay
+#define MAX_Y OFFSET + LCD_HEIGHT
 #define MIN_Y OFFSET + BALL_RADIUS
-#define MAX_Y OFFSET + LCD_HEIGHT - BALL_RADIUS
-#define MAX_X LCD_WIDTH / 2 - BALL_RADIUS
+#define MAX_X LCD_WIDTH / 2.0
 #define MIN_X -MAX_X
-#define MAX_Z 10*PIXEL_PER_METER // 10m
+#define MAX_Z 5 // 5m
 #define MIN_Z 0
-#define TOP_HEIGHT (float)(LCD_WIDTH / 2 - BALL_RADIUS) * MAX_Z / (LCD_WIDTH / 2 - 2*BALL_RADIUS)
-#define GRAVITATAIONAL_FORCE 9.8
+#define TOP_HEIGHT (float)(LCD_WIDTH / 2.0 - BALL_RADIUS) * MAX_Z / (LCD_WIDTH / 2.0 - 2*BALL_RADIUS)
+#define G_FORCE 9.8
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -66,18 +70,26 @@ typedef struct {
 	float time;
 } BALL;
 
-vector getCoordinates(BALL ball) {
+typedef enum {
+	GAME_PLAYING = 0,
+	GAME_OVER
+} Game_Status;
+
+Game_Status gameStatus = GAME_PLAYING;
+vector gyroAngle = {0, 0, 0};
+vector gyroLastAngularVelocity = {0, 0, 0};
+float gyroRawData[3];
+uint16_t score = 0;
+BALL ball;
+
+vector getCoordinates() {
     vector result;
 
     result.x = ball.root.x + ball.time*ball.velocity.x;
     result.y = ball.root.y + ball.time*ball.velocity.y;
-    result.z = ball.root.z + ball.time*ball.velocity.z - 0.5*GRAVITATAIONAL_FORCE*ball.time*ball.time;
+    result.z = ball.root.z + ball.time*ball.velocity.z - 0.5*G_FORCE*ball.time*ball.time;
 
     return result;
-}
-
-void printfVector(vector v) {
-    printf("x: %f\ny: %f\nz: %f\n", v.x, v.y, v.z);
 }
 
 vector multiplyVector(vector A, vector B) {
@@ -90,14 +102,45 @@ vector multiplyVector(vector A, vector B) {
     return result;
 }
 
-float getShadowRadius(float z) {
-    return (float)BALL_RADIUS*TOP_HEIGHT / (TOP_HEIGHT - z);
+uint16_t getShadowRadiusPx(float z) {
+    if(z <= MAX_Z)
+        return (uint16_t)(BALL_RADIUS*TOP_HEIGHT / (TOP_HEIGHT - z) * PIXEL_PER_METER);
+    return (uint16_t)(LCD_WIDTH / 2.0 * PIXEL_PER_METER);
 }
 
 void setVector(vector* v, float x, float y, float z) {
 	v->x = x;
 	v->y = y;
 	v->z = z;
+}
+
+// convert degree/s to radians/s
+vector convertDpsToRds(vector v) {
+	vector result;
+	setVector(&result, v.x*0.0174533, v.y*0.0174533, v.z*0.0174533);
+	return result;
+}
+
+float getVectorLength(vector v) {
+	return sqrt(v.x*v.x + v.y*v.y + v.z*v.z);
+}
+
+void convertXYToPx(uint16_t* x, uint16_t* y, vector v) {
+    const uint16_t radius = getShadowRadiusPx(v.z);
+    const uint16_t max_X = LCD_WIDTH_PX - 2*radius;
+    const uint16_t max_Y = LCD_HEIGHT_PX - 2*radius;
+
+    *x = fabs(v.x) * PIXEL_PER_METER - radius;
+    *y = fabs(v.y) * PIXEL_PER_METER - radius;
+
+    uint16_t tempX = *x - *x / max_X * max_X;
+    uint16_t tempY = *y - *y / max_Y * max_Y;
+
+    *x = (*x / max_X) % 2 == 0 ? tempX : max_X - tempX;
+    *y = (*y / max_Y) % 2 == 0 ? tempY : max_Y - tempY;
+
+    *x += radius;
+    *y += radius;
 }
 
 /* USER CODE END PM */
@@ -125,10 +168,6 @@ const osThreadAttr_t TrackBall_attributes = {
   .priority = (osPriority_t) osPriorityBelowNormal,
 };
 /* USER CODE BEGIN PV */
-vector angle = {0, 0, 0};
-vector lastAngularVelocity = {0, 0, 0};
-vector angularVelocity = {0, 0, 0};
-float rawData[3];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -144,7 +183,6 @@ void StartTrackBall(void *argument);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-BALL ball;
 /* USER CODE END 0 */
 
 /**
@@ -185,7 +223,7 @@ int main(void)
   BSP_LCD_SetBackColor(LCD_COLOR_WHITE);//set text background color
   BSP_LCD_SetTextColor(LCD_COLOR_BLUE);
 
-  setVector(&ball.root, 0, (float)(MAX_Y - MIN_Y) / 2, (float)1*PIXEL_PER_METER);
+  setVector(&ball.root, 0.12, 0.16, 5);
   setVector(&ball.velocity, 0, 0, 0);
 
   /* USER CODE END 2 */
@@ -318,31 +356,23 @@ static void MX_GPIO_Init(void)
 /* USER CODE END Header_StartGyroSample */
 void StartGyroSample(void *argument)
 {
-  /* init code for USB_DEVICE */
-  MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 5 */
   /* Infinite loop */
   for(;;)
   {
 	// read angular velocity
-	BSP_GYRO_GetXYZ(rawData);
+	BSP_GYRO_GetXYZ(gyroRawData);
 	for(uint8_t i = 0; i < 3; i++) {
-		// Convert Gyro raw to degrees per second (default is mdps)
-		rawData[i] = rawData[i] / 1000;
+		// Convert mdps to dps.
+		gyroRawData[i] = gyroRawData[i] / 1000;
 	}
 
 	// Riemann sum - Midpoint
-	angle.x += (rawData[0] + lastAngularVelocity.x) / 2.0 * SAMPLE_PERIOD_MS / 1000.0;
-	angle.y += (rawData[1] + lastAngularVelocity.y) / 2.0 * SAMPLE_PERIOD_MS / 1000.0;
-	angle.z += (rawData[2] + lastAngularVelocity.z) / 2.0 * SAMPLE_PERIOD_MS / 1000.0;
+	gyroAngle.x += (gyroRawData[0] + gyroLastAngularVelocity.x) / 2.0 * SAMPLE_PERIOD_MS / 1000.0;
+	gyroAngle.y += (gyroRawData[1] + gyroLastAngularVelocity.y) / 2.0 * SAMPLE_PERIOD_MS / 1000.0;
+	gyroAngle.z += (gyroRawData[2] + gyroLastAngularVelocity.z) / 2.0 * SAMPLE_PERIOD_MS / 1000.0;
 
-	char stringBuf[100];
-	sprintf(stringBuf, "xAngle: %f\nyAngle: %f\nyAngle: %f", angle.x, angle.y, angle.z);
-	CDC_Transmit_FS((uint8_t*)stringBuf, strlen(stringBuf));
-
-	lastAngularVelocity.x = rawData[0];
-	lastAngularVelocity.y = rawData[1];
-	lastAngularVelocity.z = rawData[2];
+	setVector(&gyroLastAngularVelocity, gyroRawData[0], gyroRawData[1], gyroRawData[2]);
 
 	osDelay(SAMPLE_PERIOD_MS); // tan so lay mau la 100 Hz
   }
@@ -360,8 +390,25 @@ void StartDisplayLCD(void *argument)
 {
   /* USER CODE BEGIN StartDisplayLCD */
   /* Infinite loop */
+  uint16_t shadowRadius;
   for(;;) {
+	  BSP_LCD_Clear(LCD_COLOR_WHITE);
+	  char string[30];
+	  sprintf(string, "Score: %d", score);
+	  BSP_LCD_DisplayStringAtLine(0, (uint8_t*)string);
 
+	  if(gameStatus == GAME_PLAYING) {
+		  uint16_t x, y;
+		  vector vBall = getCoordinates();
+		  convertXYToPx(&x, &y, vBall);
+		  shadowRadius = getShadowRadiusPx(vBall.z);
+		  BSP_LCD_DrawCircle(x, y, shadowRadius);
+	  }
+	  else if(gameStatus == GAME_OVER) {
+		  BSP_LCD_DisplayStringAtLine(1, (uint8_t*)"GAME OVER!");
+		  while(1)
+			  osDelay(1000000);
+	  }
   }
   /* USER CODE END StartDisplayLCD */
 }
@@ -376,11 +423,44 @@ void StartDisplayLCD(void *argument)
 void StartTrackBall(void *argument)
 {
   /* USER CODE BEGIN StartTrackBall */
+	uint32_t lastTick = HAL_GetTick();
   /* Infinite loop */
-  for(;;)
-  {
-	getCoordinates(ball);
-    osDelay(1);
+  for(;;) {
+	vector vBall = getCoordinates();
+
+	char string[30];
+	sprintf(string, "Ball's height = %f", vBall.z);
+	CDC_Transmit_FS((uint8_t*)string, strlen(string));
+
+	if(vBall.z <= 0.1) {
+		// kiem tra luc danh cua vot.
+		vector angularVelocityRad = convertDpsToRds(gyroLastAngularVelocity);
+		vector temp = vBall;
+		vector velocity = multiplyVector(angularVelocityRad, temp);
+
+		// chi xet huong danh len.
+		velocity.x = 0;
+		velocity.y = 0;
+
+		// danh nguoc huong hoac danh khong du luc
+		if(velocity.z < 3) {
+			// game over
+			gameStatus = GAME_OVER;
+			while(1)
+				osDelay(10000000);
+		}
+
+		score++;
+
+		ball.root = vBall;
+		ball.velocity = velocity;
+		ball.time = 0;
+	}
+
+	ball.time += (float)(HAL_GetTick() - lastTick) / 1000.0;
+	lastTick = HAL_GetTick();
+
+    osDelay(10);
   }
   /* USER CODE END StartTrackBall */
 }
