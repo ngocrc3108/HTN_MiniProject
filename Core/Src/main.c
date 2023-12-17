@@ -463,7 +463,7 @@ void StartTrackBall(void *argument)
 	sprintf(string, "Ball's height = %f", vBall.z);
 	CDC_Transmit_FS((uint8_t*)string, strlen(string));
 
-	if(vBall.z <= 0.1) {
+	if(vBall.z <= 0.15) {
 		// kiem tra luc danh cua vot.
 		vector angularVelocityRad = convertDpsToRds(gyroLastAngularVelocity);
 		vector temp = vBall;
@@ -473,6 +473,9 @@ void StartTrackBall(void *argument)
 		// danh nguoc huong hoac danh khong du luc
 		if(velocity.z <= 0 || getVectorLength(velocity) < 5) {
 			// game over
+			if(vBall.z > 0)
+				continue;
+
 			gameStatus = GAME_OVER;
 			HAL_GPIO_WritePin(LED3_GPIO_PORT, LED3_PIN, GPIO_PIN_SET);
 			while(1)
