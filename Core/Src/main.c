@@ -167,6 +167,13 @@ const osThreadAttr_t TrackBall_attributes = {
   .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityBelowNormal,
 };
+/* Definitions for TurnLedOff */
+osThreadId_t TurnLedOffHandle;
+const osThreadAttr_t TurnLedOff_attributes = {
+  .name = "TurnLedOff",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal7,
+};
 /* USER CODE BEGIN PV */
 /* USER CODE END PV */
 
@@ -176,6 +183,7 @@ static void MX_GPIO_Init(void);
 void StartGyroSample(void *argument);
 void StartDisplayLCD(void *argument);
 void StartTrackBall(void *argument);
+void StartTurnLedOff(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -257,6 +265,9 @@ int main(void)
   /* creation of TrackBall */
   TrackBallHandle = osThreadNew(StartTrackBall, NULL, &TrackBall_attributes);
 
+  /* creation of TurnLedOff */
+  TurnLedOffHandle = osThreadNew(StartTurnLedOff, NULL, &TurnLedOff_attributes);
+
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
@@ -332,12 +343,24 @@ void SystemClock_Config(void)
   */
 static void MX_GPIO_Init(void)
 {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
 /* USER CODE BEGIN MX_GPIO_Init_1 */
 /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOG_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOG, LED_RED_Pin|LED_GREEN_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pins : LED_RED_Pin LED_GREEN_Pin */
+  GPIO_InitStruct.Pin = LED_RED_Pin|LED_GREEN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
@@ -356,6 +379,8 @@ static void MX_GPIO_Init(void)
 /* USER CODE END Header_StartGyroSample */
 void StartGyroSample(void *argument)
 {
+  /* init code for USB_DEVICE */
+  MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 5 */
   /* Infinite loop */
   for(;;)
@@ -446,11 +471,13 @@ void StartTrackBall(void *argument)
 		if(velocity.z < 3) {
 			// game over
 			gameStatus = GAME_OVER;
+			HAL_GPIO_WritePin(LED3_GPIO_PORT, LED3_PIN, GPIO_PIN_SET);
 			while(1)
 				osDelay(10000000);
 		}
 
 		score++;
+		HAL_GPIO_WritePin(LED4_GPIO_PORT, LED4_PIN, GPIO_PIN_SET);
 
 		ball.root = vBall;
 		ball.velocity = velocity;
@@ -463,6 +490,28 @@ void StartTrackBall(void *argument)
     osDelay(10);
   }
   /* USER CODE END StartTrackBall */
+}
+
+/* USER CODE BEGIN Header_StartTurnLedOff */
+/**
+* @brief Function implementing the TurnLedOff thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartTurnLedOff */
+void StartTurnLedOff(void *argument)
+{
+  /* USER CODE BEGIN StartTurnLedOff */
+  /* Infinite loop */
+  for(;;)
+  {
+	  if(HAL_GPIO_ReadPin(LED4_GPIO_PORT, LED4_PIN) == GPIO_PIN_SET) {
+		  osDelay(200);
+		  HAL_GPIO_WritePin(LED4_GPIO_PORT, LED4_PIN, GPIO_PIN_RESET);
+	  }
+	  osDelay(10);
+  }
+  /* USER CODE END StartTurnLedOff */
 }
 
 /**
