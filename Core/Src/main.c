@@ -67,6 +67,7 @@ typedef struct {
 typedef struct {
 	vector root;
 	vector velocity;
+	vector current;
 	float time;
 } BALL;
 
@@ -74,6 +75,16 @@ typedef enum {
 	GAME_PLAYING = 0,
 	GAME_OVER
 } Game_Status;
+
+typedef enum {
+	DOWN = 0,
+	UP,
+	BLANK
+} vot_status;
+
+vot_status vot = BLANK;
+vot_status lastVot = BLANK;
+uint32_t vot_Tick;
 
 Game_Status gameStatus = GAME_PLAYING;
 vector gyroAngle = {0, 0, 0};
@@ -405,7 +416,7 @@ void StartGyroSample(void *argument)
 	setVector(&gyroLastAngularVelocity, gyroRawData[0], gyroRawData[1], gyroRawData[2]);
 	lastTick = currentTick;
 
-	osDelay(3); // tang toi da tan so lay mau
+	osDelay(1); // tang toi da tan so lay mau
   }
   /* USER CODE END 5 */
 }
@@ -433,13 +444,13 @@ void StartDisplayLCD(void *argument)
 		  vector vBall = getCoordinates();
 		  convertXYToPx(&x, &y, vBall);
 		  shadowRadius = getShadowRadiusPx(vBall.z);
-		  BSP_LCD_DrawCircle(x, y, shadowRadius);
+		  BSP_LCD_FillCircle(x, y, shadowRadius);
 	  }
 	  else if(gameStatus == GAME_OVER) {
 		  BSP_LCD_DisplayStringAtLine(1, (uint8_t*)"GAME OVER!");
-		  while(1)
-			  osDelay(1000000);
+		  osDelay(1000);
 	  }
+  osDelay(100);
   }
   /* USER CODE END StartDisplayLCD */
 }
@@ -457,44 +468,82 @@ void StartTrackBall(void *argument)
 	uint32_t lastTick = HAL_GetTick();
   /* Infinite loop */
   for(;;) {
-	vector vBall = getCoordinates();
+	ball.current = getCoordinates();
 
 	char string[30];
-	sprintf(string, "Ball's height = %f", vBall.z);
+	sprintf(string, "Ball's height = %f", ball.current.z);
 	CDC_Transmit_FS((uint8_t*)string, strlen(string));
 
-	if(vBall.z <= 0.15) {
-		// kiem tra luc danh cua vot.
+	if(gyroAngle.x < -10) {
+		vot_Tick = HAL_GetTick();
+		vot = DOWN;
+	}
+	if(gyroAngle.x > 10)
+		vot = UP;
+
+	if(lastVot == DOWN && vot == UP) {
 		vector angularVelocityRad = convertDpsToRds(gyroLastAngularVelocity);
-		vector temp = vBall;
+		vector temp = ball.current;
 		vector velocity = multiplyVector(angularVelocityRad, temp);
+		float diffTime = (HAL_GetTick() - vot_Tick) / 1000;
+		//velocity.z = -3.88 * diffTime + 9.88;
+		//ball.root = ball.current;
+
+		ball.velocity.z = -3.88 * diffTime + 9.88;
+		if(ball.velocity.z > 9.5)
+			ball.velocity.z = 9.5;
+		if(ball.velocity.z < 6)
+			ball.velocity.z = 6;
 
 
-		// danh nguoc huong hoac danh khong du luc
-		if(velocity.z <= 0 || getVectorLength(velocity) < 5) {
-			// game over
-			if(vBall.z > 0)
-				continue;
+		ball.root = ball.current;
+//		ball.root.x = 0.12;
+//		ball.root.y = 0.16;
+		ball.root.z = 0;
 
-			gameStatus = GAME_OVER;
-			HAL_GPIO_WritePin(LED3_GPIO_PORT, LED3_PIN, GPIO_PIN_SET);
-			while(1)
-				osDelay(10000000);
-		}
+		ball.current.z = 0.1;
 
+		ball.velocity.x = velocity.x / 10;
+		ball.velocity.y = velocity.y / 10;
+		ball.time = 0;
 		score++;
 		HAL_GPIO_WritePin(LED4_GPIO_PORT, LED4_PIN, GPIO_PIN_SET);
-
-		// giam bot do nhay sang hai ben
-		velocity.x /= 10;
-		velocity.y /= 10;
-
-		ball.root = vBall;
-		ball.velocity = velocity;
-		ball.time = 0;
 	}
 
-	ball.time += (float)(HAL_GetTick() - lastTick) / 1000.0;
+	lastVot = vot;
+
+//	if(ball.current.z <= 1.0) {
+//		// kiem tra luc danh cua vot.
+//
+//		vector velocity = multiplyVector(angularVelocityRad, temp);
+//
+//		// danh nguoc huong hoac danh khong du luc
+//		if(velocity.z <= 0 || getVectorLength(velocity)) {
+//			// game over
+//			if(ball.current.z > 0)
+//				continue;
+//
+//			//gameStatus = GAME_OVER;
+//			HAL_GPIO_WritePin(LED3_GPIO_PORT, LED3_PIN, GPIO_PIN_SET);
+//			while(1)
+//				osDelay(10000000);
+//		}
+//
+//		score++;
+//		HAL_GPIO_WritePin(LED4_GPIO_PORT, LED4_PIN, GPIO_PIN_SET);
+//
+//		// giam bot do nhay sang hai ben
+//		velocity.z = velocity.z > 9.5 ? 9.5 : velocity.z;
+////		velocity.x = 0;
+////		velocity.y = 0;
+//
+//		ball.root = ball.current;
+//		ball.velocity = velocity;
+//		ball.time = 0;
+//	}
+
+	if(ball.current.z >= 0)
+		ball.time += (float)(HAL_GetTick() - lastTick) / 1000.0;
 	lastTick = HAL_GetTick();
 
     osDelay(10);
