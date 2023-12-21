@@ -38,7 +38,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define SAMPLE_PERIOD_MS 10 // ms
-#define PIXEL_PER_METER 1000.0
+#define PIXEL_PER_METER 200.0
 #define LCD_HEIGHT_PX 320
 #define LCD_WIDTH_PX 240
 #define BALL_RADIUS_PX 20
@@ -445,24 +445,28 @@ void StartDisplayLCD(void *argument)
   /* Infinite loop */
   uint16_t shadowRadius;
   for(;;) {
-	  BSP_LCD_Clear(LCD_COLOR_WHITE);
-	  char string[30];
-	  sprintf(string, "Score: %d", score);
-	  BSP_LCD_DisplayStringAtLine(0, (uint8_t*)string);
-//	  sprintf(string, "h: %f", ball.current.z);
-//	  BSP_LCD_DisplayStringAtLine(2, (uint8_t*)string);
+	BSP_LCD_Clear(LCD_COLOR_WHITE);
+	char string[30];
+	sprintf(string, "Score: %d", score);
+	BSP_LCD_DisplayStringAtLine(0, (uint8_t*)string);
 
-	  if(gameState == GAME_PLAYING) {
-		  uint16_t x, y;
-		  convertXYToPx(&x, &y, ball.current);
-		  shadowRadius = getShadowRadiusPx(ball.current.z);
-		  BSP_LCD_FillCircle(x, y, shadowRadius);
-	  }
-	  if(gameState == GAME_OVER) {
-		  BSP_LCD_DisplayStringAtLine(1, (uint8_t*)"GAME OVER!");
-			HAL_GPIO_WritePin(LED3_GPIO_PORT, LED3_PIN, GPIO_PIN_SET);
-		  osDelay(100000);
-	  }
+	//	  sprintf(string, "h: %f", ball.current.z);
+	//	  BSP_LCD_DisplayStringAtLine(2, (uint8_t*)string);
+
+	sprintf(string, "Ball's height = %f", ball.current.z);
+	CDC_Transmit_FS((uint8_t*)string, strlen(string));
+
+	if(gameState == GAME_PLAYING) {
+	  uint16_t x, y;
+	  convertXYToPx(&x, &y, ball.current);
+	  shadowRadius = getShadowRadiusPx(ball.current.z);
+	  BSP_LCD_FillCircle(x, y, shadowRadius);
+	}
+	if(gameState == GAME_OVER) {
+	  BSP_LCD_DisplayStringAtLine(1, (uint8_t*)"GAME OVER!");
+		HAL_GPIO_WritePin(LED3_GPIO_PORT, LED3_PIN, GPIO_PIN_SET);
+	  osDelay(100000);
+	}
   osDelay(33);
   }
   /* USER CODE END StartDisplayLCD */
@@ -481,32 +485,26 @@ void StartTrackBall(void *argument)
 	uint32_t lastTick = HAL_GetTick();
   /* Infinite loop */
   for(;;) {
-	char string[30];
-	sprintf(string, "Ball's height = %f", ball.current.z);
-	CDC_Transmit_FS((uint8_t*)string, strlen(string));
+	angularVelocityRad = convertDpsToRds(gyro.angularVelocity);
 
-	if(gyro.angle.x < -20)
-		racketState = DOWN;
+	vector temp;
+	uint16_t x, y;
+	convertXYToPx(&x, &y, ball.current);
+	temp.x = (float)x / LCD_WIDTH_PX - LCD_WIDTH / 2;
+	temp.y = (float)y / LCD_HEIGHT_PX + 0.5; // 0.5 is sensitivity.
+	temp.z = ball.current.z - 2.0;
 
-	if(racketState == DOWN && gyro.angle.x > 10) {
-		angularVelocityRad = convertDpsToRds(gyro.angularVelocity);
-		angularVelocityRad.z = 0;
-		vector temp = {0, 2.0, ball.current.z - 2};
-		ball.velocity = crossProduct(angularVelocityRad, temp);
+	vector product = crossProduct(angularVelocityRad, temp);
 
+	// danh du luc va huong len tren.
+	if(getVectorLength(product) > 2.5 && product.z > 0) {
 		// dieu chinh lai vector van toc
-		ball.velocity.x /= 15;
-		ball.velocity.y /= 15;
-		setRange(&ball.velocity.x, -0.2, 0.2);
-		setRange(&ball.velocity.y, -0.2, 0.2);
-		setRange(&ball.velocity.z, 6, sqrt((MAX_Z - ball.current.z)*2*G_FORCE));
+		ball.velocity = product;
+		setRange(&ball.velocity.x, -2, 2); // min = -2, max = 2.
+		setRange(&ball.velocity.y, -2, 2); // min = -2, max = 2
+		setRange(&ball.velocity.z, 4.5, sqrt((MAX_Z - ball.current.z)*2*G_FORCE));
 
-		uint16_t x, y;
-		convertXYToPx(&x, &y, ball.current);
-		ball.root.x = (float)x / LCD_WIDTH_PX - LCD_WIDTH / 2;
-		ball.root.y = (float)y / LCD_HEIGHT_PX;
-		ball.root.z = ball.current.z;
-
+		ball.root = temp;
 		ball.time = 0;
 
 		score++;
