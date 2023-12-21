@@ -423,27 +423,26 @@ void StartGyroSample(void *argument)
   uint32_t currentTick;
   float gyroRawData[3];
   /* Infinite loop */
-  for(;;)
-  {
-	// read angular velocity
-	BSP_GYRO_GetXYZ(gyroRawData);
+  for(;;) {
+		// read angular velocity
+		BSP_GYRO_GetXYZ(gyroRawData);
 
-	// Convert mdps to dps.
-	for(uint8_t i = 0; i < 3; i++)
-		gyroRawData[i] = gyroRawData[i] / 1000;
+		// Convert mdps to dps.
+		for(uint8_t i = 0; i < 3; i++)
+			gyroRawData[i] = gyroRawData[i] / 1000;
 
-	currentTick = HAL_GetTick();
-	uint32_t diffTimeMs = currentTick - lastTick;
+		currentTick = HAL_GetTick();
+		uint32_t diffTimeMs = currentTick - lastTick;
 
-	// Riemann sum - Midpoint
-	gyro.angle.x += (gyroRawData[0] + gyro.angularVelocity.x) / 2.0 * diffTimeMs / 1000.0;
-	gyro.angle.y += (gyroRawData[1] + gyro.angularVelocity.y) / 2.0 * diffTimeMs / 1000.0;
-	gyro.angle.z += (gyroRawData[2] + gyro.angularVelocity.z) / 2.0 * diffTimeMs / 1000.0;
+		// Riemann sum - Midpoint
+		gyro.angle.x += (gyroRawData[0] + gyro.angularVelocity.x) / 2.0 * diffTimeMs / 1000.0;
+		gyro.angle.y += (gyroRawData[1] + gyro.angularVelocity.y) / 2.0 * diffTimeMs / 1000.0;
+		gyro.angle.z += (gyroRawData[2] + gyro.angularVelocity.z) / 2.0 * diffTimeMs / 1000.0;
 
-	setVector(&gyro.angularVelocity, gyroRawData[0], gyroRawData[1], gyroRawData[2]);
+		setVector(&gyro.angularVelocity, gyroRawData[0], gyroRawData[1], gyroRawData[2]);
 
-	lastTick = currentTick;
-	osDelay(1); // tang toi da tan so lay mau
+		lastTick = currentTick;
+		osDelay(1); // tang toi da tan so lay mau
   }
   /* USER CODE END 5 */
 }
@@ -461,29 +460,29 @@ void StartDisplayLCD(void *argument)
   /* Infinite loop */
   uint16_t shadowRadius;
   for(;;) {
-	BSP_LCD_Clear(LCD_COLOR_WHITE);
-	char string[30];
-	sprintf(string, "Score: %d", score);
-	BSP_LCD_DisplayStringAtLine(0, (uint8_t*)string);
+		BSP_LCD_Clear(LCD_COLOR_WHITE);
+		char string[30];
+		sprintf(string, "Score: %d", score);
+		BSP_LCD_DisplayStringAtLine(0, (uint8_t*)string);
 
-//	sprintf(string, "h: %f", ball.current.z);
-//	BSP_LCD_DisplayStringAtLine(2, (uint8_t*)string);
+	//	sprintf(string, "h: %f", ball.current.z);
+	//	BSP_LCD_DisplayStringAtLine(2, (uint8_t*)string);
 
-	sprintf(string, "Ball's height = %f", ball.current.z);
-	CDC_Transmit_FS((uint8_t*)string, strlen(string));
+		sprintf(string, "Ball's height = %f", ball.current.z);
+		CDC_Transmit_FS((uint8_t*)string, strlen(string));
 
-	if(gameState == GAME_PLAYING) {
-	  uint16_t x, y;
-	  convertXYToPx(&x, &y, ball.current);
-	  shadowRadius = getShadowRadiusPx(ball.current.z);
-	  BSP_LCD_FillCircle(x, y, shadowRadius);
-	}
-	if(gameState == GAME_OVER) {
-	  BSP_LCD_DisplayStringAtLine(1, (uint8_t*)"GAME OVER!");
-		HAL_GPIO_WritePin(LED3_GPIO_PORT, LED3_PIN, GPIO_PIN_SET);
-	  osDelay(100000);
-	}
-  osDelay(33);
+		if(gameState == GAME_PLAYING) {
+			uint16_t x, y;
+			convertXYToPx(&x, &y, ball.current);
+			shadowRadius = getShadowRadiusPx(ball.current.z);
+			BSP_LCD_FillCircle(x, y, shadowRadius);
+		}
+		if(gameState == GAME_OVER) {
+			BSP_LCD_DisplayStringAtLine(1, (uint8_t*)"GAME OVER!");
+			HAL_GPIO_WritePin(LED3_GPIO_PORT, LED3_PIN, GPIO_PIN_SET);
+			osDelay(100000);
+		}
+		osDelay(33);
   }
   /* USER CODE END StartDisplayLCD */
 }
