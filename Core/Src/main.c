@@ -503,7 +503,7 @@ void StartTrackBall(void *argument)
 		updateRacketState();
 
 		// kiem tra xem vot co vua duoc danh hay khong.
-		if(racketPreState_X == DOWN && racketState_X == UP || (racketPreState_Y != racketState_Y) && racketPreState_Y != BLANK) {
+		if((racketPreState_X == DOWN && racketState_X == UP) || ((racketPreState_Y != racketState_Y) && racketPreState_Y != BLANK)) {
 			vector angularVelocityRadian = convertDpsToRds(gyro.angularVelocity);
 
 			uint16_t x, y;
