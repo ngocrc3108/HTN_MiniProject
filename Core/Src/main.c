@@ -42,9 +42,9 @@
 #define LCD_HEIGHT_PX 320
 #define LCD_WIDTH_PX 240
 #define BALL_RADIUS_PX 20
-#define LCD_HEIGHT LCD_HEIGHT_PX / PIXEL_PER_METER
-#define LCD_WIDTH LCD_WIDTH_PX / PIXEL_PER_METER
-#define BALL_RADIUS BALL_RADIUS_PX / PIXEL_PER_METER
+#define LCD_HEIGHT (float)LCD_HEIGHT_PX / PIXEL_PER_METER
+#define LCD_WIDTH (float)LCD_WIDTH_PX / PIXEL_PER_METER
+#define BALL_RADIUS (float)BALL_RADIUS_PX / PIXEL_PER_METER
 #define OFFSET 4.4 // do nhay
 #define MAX_Y OFFSET + LCD_HEIGHT
 #define MIN_Y OFFSET + BALL_RADIUS
@@ -116,9 +116,10 @@ vector crossProduct(vector A, vector B) {
 }
 
 uint16_t getShadowRadiusPx(float z) {
-    if(z < MAX_Z)
-        return (uint16_t)(BALL_RADIUS*TOP_HEIGHT / (TOP_HEIGHT - z) * PIXEL_PER_METER);
-    return (uint16_t)(LCD_WIDTH / 2.0 * PIXEL_PER_METER);
+    if(z > MAX_Z)
+        z = MAX_Z;
+
+    return (uint16_t)(BALL_RADIUS*TOP_HEIGHT / (TOP_HEIGHT - z) * PIXEL_PER_METER);
 }
 
 void setVector(vector* v, float x, float y, float z) {
@@ -146,14 +147,21 @@ void convertXYToPx(uint16_t* x, uint16_t* y, vector v) {
     *x = fabs(v.x) * PIXEL_PER_METER - radius;
     *y = fabs(v.y) * PIXEL_PER_METER - radius;
 
-    uint16_t tempX = *x - *x / max_X * max_X;
-    uint16_t tempY = *y - *y / max_Y * max_Y;
+    uint16_t tempX = *x % max_X;
+    uint16_t tempY = *y % max_Y;
 
     *x = (*x / max_X) % 2 == 0 ? tempX : max_X - tempX;
     *y = (*y / max_Y) % 2 == 0 ? tempY : max_Y - tempY;
 
     *x += radius;
     *y += radius;
+}
+
+void setRange(float* f, float min, float max) {
+	if(*f < min)
+		*f = min;
+	else if(*f > max)
+		*f = max;
 }
 
 /* USER CODE END PM */
@@ -244,7 +252,7 @@ int main(void)
   BSP_LCD_SetBackColor(LCD_COLOR_WHITE);//set text background color
   BSP_LCD_SetTextColor(LCD_COLOR_BLUE);
 
-  setVector(&ball.root, 0.12, 0.16, MAX_Z);
+  setVector(&ball.root, LCD_WIDTH / 2.0, LCD_HEIGHT / 2.0, MAX_Z);
   setVector(&ball.velocity, 0, 0, 0);
 
   /* USER CODE END 2 */
@@ -477,43 +485,27 @@ void StartTrackBall(void *argument)
 	sprintf(string, "Ball's height = %f", ball.current.z);
 	CDC_Transmit_FS((uint8_t*)string, strlen(string));
 
-	if(gyro.angle.x + gyro.angle.y < -20)
+	if(gyro.angle.x < -20)
 		racketState = DOWN;
 
-	if(racketState == DOWN && gyro.angle.x + gyro.angle.y > 10) {
+	if(racketState == DOWN && gyro.angle.x > 10) {
 		angularVelocityRad = convertDpsToRds(gyro.angularVelocity);
 		angularVelocityRad.z = 0;
-		vector temp = ball.current;
-
-		temp.x -= MAX_X; // di chuyen truc toa do Oxyz
-		temp.y += 2.0; // do nhay
-		temp.z -= 2;
-
+		vector temp = {0, 2.0, ball.current.z - 2};
 		ball.velocity = crossProduct(angularVelocityRad, temp);
 
 		// dieu chinh lai vector van toc
-		float maxZ = sqrt((MAX_Z-ball.current.z)*98.0 / 5.0);
-		ball.velocity.x /= 10;
-		ball.velocity.y /= 10;
-		if(ball.velocity.z < 6)
-			ball.velocity.z = 6;
-		else if(ball.velocity.z > maxZ)
-			ball.velocity.z = maxZ;
-
 		ball.velocity.x /= 15;
 		ball.velocity.y /= 15;
+		setRange(&ball.velocity.x, -0.2, 0.2);
+		setRange(&ball.velocity.y, -0.2, 0.2);
+		setRange(&ball.velocity.z, 6, sqrt((MAX_Z - ball.current.z)*2*G_FORCE));
 
-		if(ball.velocity.x < -0.2)
-			ball.velocity.x = -0.2;
-		else if(ball.velocity.x > 0.2)
-			ball.velocity.x = 0.2;
-
-		if(ball.velocity.y < -0.2)
-			ball.velocity.y = -0.2;
-		else if(ball.velocity.y > 0.2)
-			ball.velocity.y = 0.2;
-
-		ball.root = ball.current;
+		uint16_t x, y;
+		convertXYToPx(&x, &y, ball.current);
+		ball.root.x = (float)x / LCD_WIDTH_PX - LCD_WIDTH / 2;
+		ball.root.y = (float)y / LCD_HEIGHT_PX;
+		ball.root.z = ball.current.z;
 
 		ball.time = 0;
 
@@ -523,7 +515,6 @@ void StartTrackBall(void *argument)
 	}
 
 	updateBallCoordinates();
-
 
 	if(ball.current.z == 0 && ball.time > 0) {
 		gameState = GAME_OVER;
